@@ -6,6 +6,7 @@
 #include <exception>
 #include <mutex>
 #include <ranges>
+#include <map>
 
 namespace fs = std::filesystem;
 
@@ -89,31 +90,31 @@ double similarity(const std::vector<T>& first, const std::vector<T>& second) {
     const size_t m = first.size();
     const size_t n = second.size();
     const size_t max = std::max(first.size(), second.size());
-    std::vector<size_t> dp(m, max);
-    std::vector<size_t> prev(m, max);
+    std::vector<int> dp(m, -1);
+    std::vector<int> prev(m, -1);
     dp[0] = 0;
     for (size_t i = 0; i < n; ++i) {
         for (size_t j = 0; j < m; ++j) {
             if (i != 0) {
-                dp[j] = std::min(prev[j], dp[j]);
+                dp[j] = std::max(prev[j], dp[j]);
             }
             if (j != 0) {
-                dp[j] = std::min(dp[j - 1], dp[j]);
+                dp[j] = std::max(dp[j - 1], dp[j]);
             }
             if (i != 0 && j != 0 && first[i] == second[j]) {
-                dp[j] = std::min(prev[j - 1], dp[j]);
+                dp[j] = std::max(prev[j - 1] + 1, dp[j]);
             }
         }
         prev = dp;
         for (size_t j = 0; j < m; ++j) {
-            dp[j] = max;
+            dp[j] = -1;
         }
     }
     return static_cast<double>(prev.back()) / max;
 }
 
 std::pair<std::vector<uint64_t>, uint64_t> getHashBlocks(const fs::path& path, size_t block = 512) {
-    const size_t kPrime = 119;
+    const size_t kPrime = 119; // magic number whoohooo
 
     std::vector<HashType> seq;
     std::ifstream in(path, std::ios::binary);
@@ -184,11 +185,11 @@ void outputPairs(const std::string& preambule, const std::vector<OutputFormat>& 
     }
 }
 
-void outputFiles(const std::string& preambule, const std::vector<fs::path>& files) {
+void outputFiles(const std::string& preambule, const std::vector<std::string>& files) {
     size_t row = 1;
     std::cout << preambule << '\n';
     for (const auto& cur : files) {
-        std::cout << row++ << ". " << cur.string() << "\n";
+        std::cout << row++ << ". " << cur << "\n";
     }
 }
 
@@ -259,6 +260,11 @@ int main(int argc, char **argv) {
     std::mutex equal_lock;
     std::vector<OutputFormat> similar;
     std::mutex similar_lock;
+
+    std::map<std::string, bool> used_A;
+    std::map<std::string, bool> used_B;
+    std::mutex used_lock;
+
     std::atomic<size_t> next = 0;
 
     auto workflow = [&](bool progress) {
@@ -281,9 +287,17 @@ int main(int argc, char **argv) {
                 auto [a_blocks, a_hash] = getHashBlocks(a_file, block_size);
                 auto [b_blocks, b_hash] = getHashBlocks(b_file, block_size);
                 if (a_hash == b_hash && checkEqual(a_file, b_file)) {
+                    std::unique_lock used(used_lock);
+                    used_A[a_file.string()] = true;
+                    used_B[b_file.string()] = true;
+                    used.unlock();
                     std::lock_guard lock(equal_lock);
                     equal.push_back(OutputFormat{a_file, b_file, true});
                 } else if ((similarity_coef = similarity<HashType>(a_blocks, b_blocks)) * 100 >= p) {
+                    std::unique_lock used(used_lock);
+                    used_A[a_file.string()] = true;
+                    used_B[b_file.string()] = true;
+                    used.unlock();
                     std::lock_guard lock(similar_lock);
                     similar.push_back(OutputFormat{a_file, b_file, false, similarity_coef});
                 }
@@ -303,7 +317,33 @@ int main(int argc, char **argv) {
         return a.similarity > b.similarity;
     });
 
-    outputPairs("Equal files:", equal);
-    outputPairs("Similar files:", similar);
+    if (equal.size() != 0) {
+        outputPairs("Equal files:", equal);
+    }
+    if (similar.size() != 0) {
+        outputPairs("Similar files:", similar);
+    }
+
+    std::vector<std::string> unused_A;
+    std::vector<std::string> unused_B;
+
+    for (auto [path, is_used] : used_A) {
+        if (!is_used) {
+            unused_A.push_back(path);
+        }
+    }
+
+    for (auto [path, is_used] : used_B) {
+        if (!is_used) {
+            unused_B.push_back(path);
+        }
+    }
+
+    if (unused_A.size() != 0) {
+        outputFiles("Missing first (A) directory files:", unused_A);
+    }
+    if (unused_B.size() != 0) {
+        outputFiles("Missing second (B) directory files:", unused_B);
+    }
 
 }
