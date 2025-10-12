@@ -1,6 +1,6 @@
 ### Белецкий Иван Александрович
 
-### Задача № 1
+### Задача № 4
 
 Для компиляции `g++ -std=c++20 -Ofast -o comparator comparator.cpp`
 Для запуска `./comparator -A "example_A" -B "example_B"`
