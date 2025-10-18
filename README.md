@@ -2,6 +2,8 @@
 
 ### Задача № 4
 
+Для быстрой проверки на загруженных тестах нужно запустить `./run.sh`.
+
 Для компиляции `g++ -std=c++20 -Ofast -o comparator comparator.cpp`
 Для запуска `./comparator -A "example_A" -B "example_B" ...`
 
