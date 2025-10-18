@@ -245,13 +245,19 @@ int main(int argc, char **argv) {
         }
     }, params);
 
+    std::map<std::string, bool> used_A;
+    std::map<std::string, bool> used_B;
+    std::mutex used_lock;
+
     std::vector<fs::path> A_files;
     std::vector<fs::path> B_files;
     for (auto &&file : fs::directory_iterator(A_dir)) {
        A_files.push_back(file);
+       used_A[static_cast<fs::path>(file).string()] = false;
     }
     for (auto &&file : fs::directory_iterator(B_dir)) {
         B_files.push_back(file);
+        used_B[static_cast<fs::path>(file).string()] = false;
     }
 
     std::vector<std::thread> ts(threads - 1);
@@ -260,10 +266,6 @@ int main(int argc, char **argv) {
     std::mutex equal_lock;
     std::vector<OutputFormat> similar;
     std::mutex similar_lock;
-
-    std::map<std::string, bool> used_A;
-    std::map<std::string, bool> used_B;
-    std::mutex used_lock;
 
     std::atomic<size_t> next = 0;
 
