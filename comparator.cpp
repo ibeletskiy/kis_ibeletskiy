@@ -83,24 +83,20 @@ double similarity(const std::vector<T>& first, const std::vector<T>& second) {
     const size_t m = first.size();
     const size_t n = second.size();
     const size_t max = std::max(first.size(), second.size());
-    std::vector<int> dp(m, -1);
-    std::vector<int> prev(m, -1);
-    dp[0] = 0;
-    for (size_t i = 0; i < n; ++i) {
-        for (size_t j = 0; j < m; ++j) {
-            if (i != 0) {
-                dp[j] = std::max(prev[j], dp[j]);
-            }
-            if (j != 0) {
-                dp[j] = std::max(dp[j - 1], dp[j]);
-            }
-            if (i != 0 && j != 0 && first[i] == second[j]) {
+    std::vector<int> dp(m + 1, 0);
+    std::vector<int> prev(m + 1, 0);
+    prev[0] = 0;
+    for (size_t i = 1; i <= n; ++i) {
+        for (size_t j = 1; j <= m; ++j) {
+            dp[j] = std::max(prev[j], dp[j]);
+            dp[j] = std::max(dp[j - 1], dp[j]);
+            if (first[i - 1] == second[j - 1]) {
                 dp[j] = std::max(prev[j - 1] + 1, dp[j]);
             }
         }
         prev = dp;
-        for (size_t j = 0; j < m; ++j) {
-            dp[j] = -1;
+        for (size_t j = 0; j <= m; ++j) {
+            dp[j] = 0;
         }
     }
     return static_cast<double>(prev.back()) / max;
