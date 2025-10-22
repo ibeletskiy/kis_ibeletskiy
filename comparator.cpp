@@ -77,13 +77,6 @@ using HashType = uint64_t;
 
 const size_t kOptimization = 10000;
 
-struct OutputFormat {
-    fs::path first;
-    fs::path second;
-    bool is_equal = false;
-    double similarity;
-};
-
 template <typename T>
 double similarity(const std::vector<T>& first, const std::vector<T>& second) {
     // using simple lcs algorithm with optimized memory
@@ -114,7 +107,7 @@ double similarity(const std::vector<T>& first, const std::vector<T>& second) {
 }
 
 std::pair<std::vector<uint64_t>, uint64_t> getHashBlocks(const fs::path& path, size_t block = 512) {
-    const size_t kPrime = 119; // magic number whoohooo
+    const size_t kPrime = 119; // magic hash number whoohooo
 
     std::vector<HashType> seq;
     std::ifstream in(path, std::ios::binary);
@@ -143,6 +136,7 @@ std::pair<std::vector<uint64_t>, uint64_t> getHashBlocks(const fs::path& path, s
 }
 
 bool checkEqual(const fs::path &a, const fs::path &b) {
+    // simple equality check
     const size_t block = 1<<20;
 
     if (fs::file_size(a) != fs::file_size(b)) {
@@ -173,6 +167,13 @@ bool checkEqual(const fs::path &a, const fs::path &b) {
     return true;
 }
 
+struct OutputFormat {
+    fs::path first;
+    fs::path second;
+    bool is_equal = false;
+    double similarity;
+};
+
 void outputPairs(const std::string& preambule, const std::vector<OutputFormat>& files) {
     size_t row = 1;
     std::cout << preambule << '\n';
@@ -196,6 +197,7 @@ void outputFiles(const std::string& preambule, const std::vector<std::string>& f
 // A and B naming was chosen because of analogy with A/B testing :)
 
 int main(int argc, char **argv) {
+    // --- script initialization part ---
     int p = 0;
     size_t threads = std::thread::hardware_concurrency();
     fs::path A_dir;
@@ -245,6 +247,7 @@ int main(int argc, char **argv) {
         }
     }, params);
 
+    // --- internals initialization part ---
     std::map<std::string, bool> used_A;
     std::map<std::string, bool> used_B;
     std::mutex used_lock;
@@ -269,6 +272,7 @@ int main(int argc, char **argv) {
 
     std::atomic<size_t> next = 0;
 
+    // main workflow running in threads
     auto workflow = [&](bool progress) {
         size_t count = 0;
         size_t process = next.fetch_add(1);
@@ -288,14 +292,15 @@ int main(int argc, char **argv) {
                 size_t block_size = std::max(getBlockSize(fs::file_size(a_file)), getBlockSize(fs::file_size(b_file)));
                 auto [a_blocks, a_hash] = getHashBlocks(a_file, block_size);
                 auto [b_blocks, b_hash] = getHashBlocks(b_file, block_size);
-                if (a_hash == b_hash && checkEqual(a_file, b_file)) {
+
+                if (a_hash == b_hash && checkEqual(a_file, b_file)) { // we shouldn't check if files are really equal, if their hash isn't equal too
                     std::unique_lock used(used_lock);
                     used_A[a_file.string()] = true;
                     used_B[b_file.string()] = true;
                     used.unlock();
                     std::lock_guard lock(equal_lock);
                     equal.push_back(OutputFormat{a_file, b_file, true});
-                } else if ((similarity_coef = similarity<HashType>(a_blocks, b_blocks)) * 100 >= p) {
+                } else if ((similarity_coef = similarity<HashType>(a_blocks, b_blocks)) * 100 >= p) { // working with LCS algorithm
                     std::unique_lock used(used_lock);
                     used_A[a_file.string()] = true;
                     used_B[b_file.string()] = true;
@@ -307,6 +312,8 @@ int main(int argc, char **argv) {
             }
         }
     };
+
+    // --- threading part ---
     for (auto &x : ts) {
         x = std::thread(workflow, 0);
     }
@@ -315,6 +322,9 @@ int main(int argc, char **argv) {
         x.join();
     }
 
+    // --- output formatting part ---
+
+    // 
     std::sort(similar.begin(), similar.end(), [](OutputFormat a, OutputFormat b) {
         return a.similarity > b.similarity;
     });
@@ -325,22 +335,20 @@ int main(int argc, char **argv) {
     if (similar.size() != 0) {
         outputPairs("Similar files:", similar);
     }
-
     std::vector<std::string> unused_A;
     std::vector<std::string> unused_B;
 
+    // counting unused files
     for (auto [path, is_used] : used_A) {
         if (!is_used) {
             unused_A.push_back(path);
         }
     }
-
     for (auto [path, is_used] : used_B) {
         if (!is_used) {
             unused_B.push_back(path);
         }
     }
-
     if (unused_A.size() != 0) {
         outputFiles("Missing first (A) directory files:", unused_A);
     }
